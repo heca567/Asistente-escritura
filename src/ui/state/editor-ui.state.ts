@@ -1,9 +1,19 @@
 import { Note, SyncStatus } from '../../domain/models/note.model';
 import { WritingStage } from '../../domain/models/writing-flow.model';
+import type { Folder, UserProfile } from '../../types';
 
 export type StageFilterKey = WritingStage | 'ALL';
+export type ProjectFilterKey = string | 'ALL';
 
 export type FeedbackTone = 'info' | 'success' | 'warning' | 'error';
+
+export interface ProjectOptionVM {
+  readonly id: ProjectFilterKey;
+  readonly name: string;
+  readonly color: string;
+  readonly noteCount: number;
+  readonly isActive: boolean;
+}
 
 export interface FeedbackNoticeVM {
   readonly id: string;
@@ -82,6 +92,15 @@ export interface WorkspaceMetricsVM {
 }
 
 export interface EditorUIState {
+  readonly user: UserProfile | null;
+  readonly isAuthReady: boolean;
+  readonly isSigningIn: boolean;
+  readonly projects: readonly Folder[];
+  readonly selectedProjectId: ProjectFilterKey;
+  readonly isProjectModalOpen: boolean;
+  readonly newProjectName: string;
+  readonly newProjectColor: string;
+  readonly isCreatingProject: boolean;
   readonly notes: readonly Note[];
   readonly activeNoteId: string | null;
   readonly draftTitle: string;
@@ -110,6 +129,15 @@ export interface EditorUIState {
 
 export function createInitialEditorUIState(): EditorUIState {
   return {
+    user: null,
+    isAuthReady: false,
+    isSigningIn: false,
+    projects: [],
+    selectedProjectId: 'ALL',
+    isProjectModalOpen: false,
+    newProjectName: '',
+    newProjectColor: '#1E3A5F',
+    isCreatingProject: false,
     notes: [],
     activeNoteId: null,
     draftTitle: '',

@@ -17,6 +17,7 @@ export interface TextMetrics {
 
 export interface Note {
   readonly id: string;
+  readonly folderId?: string | null;
   readonly slug: string;
   readonly title: string;
   readonly content: string;
@@ -32,6 +33,7 @@ export interface Note {
 
 export interface NoteInput {
   readonly id?: string;
+  readonly folderId?: string | null;
   readonly title: string;
   readonly content: string;
   readonly stage?: WritingStage;

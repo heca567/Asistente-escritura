@@ -1,12 +1,27 @@
 import { Note } from '../../domain/models/note.model';
+import type { Folder, UserProfile } from '../../types';
 import {
   EditorUIState,
   FeedbackNoticeVM,
+  ProjectFilterKey,
   StageFilterKey,
   SyncConfigDraftVM,
 } from './editor-ui.state';
 
 export type EditorUIAction =
+  | { readonly type: 'SET_AUTH_STATE'; readonly payload: { readonly user: UserProfile | null } }
+  | { readonly type: 'SIGN_IN_START' }
+  | { readonly type: 'SIGN_IN_ERROR'; readonly payload: { readonly message: string } }
+  | { readonly type: 'SIGN_OUT_SUCCESS' }
+  | { readonly type: 'SET_PROJECTS'; readonly payload: { readonly projects: readonly Folder[] } }
+  | { readonly type: 'SELECT_PROJECT'; readonly payload: { readonly projectId: ProjectFilterKey } }
+  | { readonly type: 'OPEN_PROJECT_MODAL' }
+  | { readonly type: 'CLOSE_PROJECT_MODAL' }
+  | { readonly type: 'UPDATE_NEW_PROJECT_NAME'; readonly payload: { readonly name: string } }
+  | { readonly type: 'UPDATE_NEW_PROJECT_COLOR'; readonly payload: { readonly color: string } }
+  | { readonly type: 'CREATE_PROJECT_START' }
+  | { readonly type: 'CREATE_PROJECT_SUCCESS'; readonly payload: { readonly project: Folder } }
+  | { readonly type: 'CREATE_PROJECT_ERROR'; readonly payload: { readonly message: string } }
   | { readonly type: 'LOAD_NOTES_START' }
   | { readonly type: 'LOAD_NOTES_SUCCESS'; readonly payload: { readonly notes: readonly Note[] } }
   | { readonly type: 'LOAD_NOTES_ERROR'; readonly payload: { readonly message: string } }
@@ -91,6 +106,131 @@ function hydrateDraftFromNote(note: Note | null): {
 
 export function editorUIReducer(state: EditorUIState, action: EditorUIAction): EditorUIState {
   switch (action.type) {
+    case 'SET_AUTH_STATE':
+      return {
+        ...state,
+        user: action.payload.user,
+        isAuthReady: true,
+        isSigningIn: false,
+        ...(action.payload.user
+          ? {}
+          : { projects: [], selectedProjectId: 'ALL' }),
+      };
+
+    case 'SIGN_IN_START':
+      return {
+        ...state,
+        isSigningIn: true,
+      };
+
+    case 'SIGN_IN_ERROR':
+      return {
+        ...state,
+        isSigningIn: false,
+        feedback: {
+          id: `auth-err-${Date.now()}`,
+          tone: 'error',
+          message: action.payload.message,
+        },
+      };
+
+    case 'SIGN_OUT_SUCCESS':
+      return {
+        ...state,
+        user: null,
+        projects: [],
+        selectedProjectId: 'ALL',
+        isProjectModalOpen: false,
+        feedback: {
+          id: `signout-${Date.now()}`,
+          tone: 'info',
+          message: 'Sesión cerrada. Trabajando en modo local.',
+        },
+      };
+
+    case 'SET_PROJECTS': {
+      const stillExists =
+        state.selectedProjectId === 'ALL' ||
+        action.payload.projects.some((p) => p.id === state.selectedProjectId);
+      return {
+        ...state,
+        projects: action.payload.projects,
+        selectedProjectId: stillExists ? state.selectedProjectId : 'ALL',
+      };
+    }
+
+    case 'SELECT_PROJECT':
+      return {
+        ...state,
+        selectedProjectId: action.payload.projectId,
+      };
+
+    case 'OPEN_PROJECT_MODAL':
+      return {
+        ...state,
+        isProjectModalOpen: true,
+        newProjectName: '',
+        newProjectColor: '#1E3A5F',
+      };
+
+    case 'CLOSE_PROJECT_MODAL':
+      return {
+        ...state,
+        isProjectModalOpen: false,
+        isCreatingProject: false,
+      };
+
+    case 'UPDATE_NEW_PROJECT_NAME':
+      return {
+        ...state,
+        newProjectName: action.payload.name,
+      };
+
+    case 'UPDATE_NEW_PROJECT_COLOR':
+      return {
+        ...state,
+        newProjectColor: action.payload.color,
+      };
+
+    case 'CREATE_PROJECT_START':
+      return {
+        ...state,
+        isCreatingProject: true,
+      };
+
+    case 'CREATE_PROJECT_SUCCESS': {
+      const exists = state.projects.some((p) => p.id === action.payload.project.id);
+      const nextProjects = exists
+        ? state.projects
+        : [...state.projects, action.payload.project].sort((a, b) =>
+            a.name.localeCompare(b.name, 'es')
+          );
+      return {
+        ...state,
+        projects: nextProjects,
+        selectedProjectId: action.payload.project.id,
+        isCreatingProject: false,
+        isProjectModalOpen: false,
+        newProjectName: '',
+        feedback: {
+          id: `proj-created-${Date.now()}`,
+          tone: 'success',
+          message: `Proyecto "${action.payload.project.name}" creado en Firestore.`,
+        },
+      };
+    }
+
+    case 'CREATE_PROJECT_ERROR':
+      return {
+        ...state,
+        isCreatingProject: false,
+        feedback: {
+          id: `proj-err-${Date.now()}`,
+          tone: 'error',
+          message: action.payload.message,
+        },
+      };
+
     case 'LOAD_NOTES_START':
       return {
         ...state,

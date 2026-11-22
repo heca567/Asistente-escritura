@@ -65,6 +65,7 @@ export class ManageNotesUseCase {
 
     const note: Note = {
       id,
+      folderId: input.folderId ?? null,
       slug: buildSlug(cleanTitle, id),
       title: cleanTitle,
       content,
@@ -113,6 +114,10 @@ export class ManageNotesUseCase {
 
   public computeMetrics(content: string): TextMetrics {
     return calculateTextMetrics(content);
+  }
+
+  public serializeNote(note: Note): string {
+    return this.markdownCodec.serialize(note);
   }
 
   public async exportNoteAsMarkdown(id: string): Promise<string> {

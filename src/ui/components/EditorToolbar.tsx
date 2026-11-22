@@ -3,6 +3,8 @@ import {
   Cloud,
   Download,
   Eye,
+  ListChecks,
+  LogOut,
   Maximize2,
   Minimize2,
   PanelLeft,
@@ -12,11 +14,15 @@ import {
   Settings,
 } from 'lucide-react';
 import { WritingStage } from '../../domain/models/writing-flow.model';
+import type { UserProfile } from '../../types';
 import { ActiveNoteVM, StageTransitionOptionVM } from '../state/editor-ui.state';
+import { GoogleSignInButton } from './GoogleSignInButton';
 import { PWAInstallButton } from './PWAInstallButton';
 import { StageTransitionBar } from './StageTransitionBar';
 
 interface EditorToolbarProps {
+  readonly user: UserProfile | null;
+  readonly isSigningIn: boolean;
   readonly activeNote: ActiveNoteVM | null;
   readonly allowedTransitions: readonly StageTransitionOptionVM[];
   readonly isFocusMode: boolean;
@@ -28,6 +34,9 @@ interface EditorToolbarProps {
   readonly isPWAInstallable: boolean;
   readonly isPWAInstalled: boolean;
   readonly isIOSDevice: boolean;
+  readonly onSignIn: () => void;
+  readonly onSignOut: () => void;
+  readonly onOpenAfirmaciones?: () => void;
   readonly onToggleSidebar: () => void;
   readonly onToggleFocusMode: () => void;
   readonly onTogglePreviewMode: () => void;
@@ -41,7 +50,7 @@ interface EditorToolbarProps {
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
-  const { activeNote, allowedTransitions, isFocusMode, isPreviewMode } = props;
+  const { activeNote, allowedTransitions, isFocusMode, isPreviewMode, user, isSigningIn } = props;
   const saveLabel = props.isSaving ? 'Guardando…' : activeNote?.isDirty ? 'Guardar' : 'Guardado';
   const syncLabel = props.isSyncing ? 'Sincronizando…' : props.isSyncConfigured ? 'Sincronizar' : 'Conectar GitHub';
 
@@ -68,7 +77,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
         )}
       </div>
 
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
         {activeNote && (
           <>
             <button
@@ -127,6 +136,20 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
           <Settings className="h-4 w-4" />
         </button>
 
+        {props.onOpenAfirmaciones && (
+          <a
+            href="/afirmaciones"
+            onClick={(event) => {
+              event.preventDefault();
+              props.onOpenAfirmaciones?.();
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#D6D3C9] bg-[#FCFBF8] px-3 py-1.5 text-xs font-medium text-[#44403C] hover:bg-[#EFECE4] transition-colors whitespace-nowrap shrink-0"
+          >
+            <ListChecks className="h-3.5 w-3.5 text-[#1E3A5F]" />
+            Afirmaciones
+          </a>
+        )}
+
         <PWAInstallButton
           isPWAInstallable={props.isPWAInstallable}
           isPWAInstalled={props.isPWAInstalled}
@@ -134,6 +157,37 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
           onInstallPWA={props.onInstallPWA}
           onOpenIOSGuide={props.onOpenIOSGuide}
         />
+
+        {user ? (
+          <div className="flex items-center gap-1.5 border-l border-[#E5E2D9] pl-2 ml-0.5">
+            {user.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt={user.displayName}
+                referrerPolicy="no-referrer"
+                className="h-6 w-6 rounded-full border border-[#D6D3C9] object-cover shrink-0"
+              />
+            ) : (
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#1E3A5F] text-[11px] font-semibold text-[#FCFBF8] shrink-0">
+                {user.displayName.charAt(0).toUpperCase()}
+              </span>
+            )}
+            <span className="hidden max-w-[120px] truncate text-xs font-medium text-[#44403C] sm:inline">
+              {user.displayName}
+            </span>
+            <button
+              type="button"
+              onClick={props.onSignOut}
+              title="Cerrar sesión"
+              className="inline-flex items-center gap-1 rounded-md border border-[#D6D3C9] bg-[#FCFBF8] px-2.5 py-1.5 text-xs font-medium text-[#57534E] hover:bg-[#EFECE4] hover:text-[#18181B] transition-colors whitespace-nowrap shrink-0"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden md:inline">Salir</span>
+            </button>
+          </div>
+        ) : (
+          <GoogleSignInButton isSigningIn={isSigningIn} onClick={props.onSignIn} />
+        )}
       </div>
     </header>
   );

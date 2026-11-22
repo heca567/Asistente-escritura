@@ -3,14 +3,19 @@ import { WifiOff, X } from 'lucide-react';
 import { StudioUseCases, useNoteStudioHandler } from '../handlers/useNoteStudioHandler';
 import { EditorToolbar } from './EditorToolbar';
 import { MarkdownCanvas } from './MarkdownCanvas';
+import { NewProjectModal } from './NewProjectModal';
 import { SidebarIndex } from './SidebarIndex';
 import { SyncSettingsModal } from './SyncSettingsModal';
 
 interface WritingStudioPageProps {
   readonly useCases: StudioUseCases;
+  readonly onNavigateAfirmaciones?: () => void;
 }
 
-export const WritingStudioPage: React.FC<WritingStudioPageProps> = ({ useCases }) => {
+export const WritingStudioPage: React.FC<WritingStudioPageProps> = ({
+  useCases,
+  onNavigateAfirmaciones,
+}) => {
   const { vm, actions } = useNoteStudioHandler(useCases);
   const { ui } = vm;
 
@@ -24,27 +29,52 @@ export const WritingStudioPage: React.FC<WritingStudioPageProps> = ({ useCases }
         className="hidden"
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         {ui.isSidebarOpen && !ui.isFocusMode && (
-          <SidebarIndex
-            noteCards={vm.noteCards}
-            stageFilters={vm.stageFilters}
-            searchQuery={ui.searchQuery}
-            metrics={vm.workspaceMetrics}
-            isLoading={ui.isLoading}
-            onSelectNote={actions.selectNote}
-            onCreateNote={actions.createNote}
-            onRequestDelete={actions.requestDeleteNote}
-            onCancelDelete={actions.cancelDeleteNote}
-            onConfirmDelete={actions.confirmDeleteNote}
-            onChangeStageFilter={actions.changeStageFilter}
-            onChangeSearchQuery={actions.changeSearchQuery}
-            onTriggerImport={actions.triggerImportMarkdown}
-          />
+          <>
+            <div
+              onClick={actions.toggleSidebar}
+              aria-hidden="true"
+              className="fixed inset-0 z-30 bg-black/30 md:hidden"
+            />
+            <SidebarIndex
+              user={ui.user}
+              isSigningIn={ui.isSigningIn}
+              projectOptions={vm.projectOptions}
+              selectedProjectId={ui.selectedProjectId}
+              isSignedIn={Boolean(ui.user)}
+              noteCards={vm.noteCards}
+              stageFilters={vm.stageFilters}
+              searchQuery={ui.searchQuery}
+              metrics={vm.workspaceMetrics}
+              isLoading={ui.isLoading}
+              onSignIn={actions.signInWithGoogle}
+              onSignOut={actions.signOutUser}
+              onOpenAfirmaciones={onNavigateAfirmaciones}
+              onCloseMobileSidebar={actions.toggleSidebar}
+              onSelectProject={actions.selectProject}
+              onOpenNewProject={actions.openNewProjectModal}
+              onSelectNote={(noteId) => {
+                actions.selectNote(noteId);
+                if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                  actions.toggleSidebar();
+                }
+              }}
+              onCreateNote={actions.createNote}
+              onRequestDelete={actions.requestDeleteNote}
+              onCancelDelete={actions.cancelDeleteNote}
+              onConfirmDelete={actions.confirmDeleteNote}
+              onChangeStageFilter={actions.changeStageFilter}
+              onChangeSearchQuery={actions.changeSearchQuery}
+              onTriggerImport={actions.triggerImportMarkdown}
+            />
+          </>
         )}
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <EditorToolbar
+            user={ui.user}
+            isSigningIn={ui.isSigningIn}
             activeNote={vm.activeNote}
             allowedTransitions={vm.allowedTransitions}
             isFocusMode={ui.isFocusMode}
@@ -56,6 +86,9 @@ export const WritingStudioPage: React.FC<WritingStudioPageProps> = ({ useCases }
             isPWAInstallable={ui.isPWAInstallable}
             isPWAInstalled={ui.isPWAInstalled}
             isIOSDevice={ui.isIOSDevice}
+            onSignIn={actions.signInWithGoogle}
+            onSignOut={actions.signOutUser}
+            onOpenAfirmaciones={onNavigateAfirmaciones}
             onToggleSidebar={actions.toggleSidebar}
             onToggleFocusMode={actions.toggleFocusMode}
             onTogglePreviewMode={actions.togglePreviewMode}
@@ -72,6 +105,9 @@ export const WritingStudioPage: React.FC<WritingStudioPageProps> = ({ useCases }
             activeNote={vm.activeNote}
             isPreviewMode={ui.isPreviewMode}
             isFocusMode={ui.isFocusMode}
+            isSignedIn={Boolean(ui.user)}
+            isSigningIn={ui.isSigningIn}
+            onSignIn={actions.signInWithGoogle}
             onChangeTitle={actions.changeDraftTitle}
             onChangeContent={actions.changeDraftContent}
             onChangeTags={actions.changeDraftTags}
@@ -103,6 +139,17 @@ export const WritingStudioPage: React.FC<WritingStudioPageProps> = ({ useCases }
           </button>
         </div>
       )}
+
+      <NewProjectModal
+        isOpen={ui.isProjectModalOpen}
+        projectName={ui.newProjectName}
+        projectColor={ui.newProjectColor}
+        isCreating={ui.isCreatingProject}
+        onClose={actions.closeNewProjectModal}
+        onNameChange={actions.changeNewProjectName}
+        onColorChange={actions.changeNewProjectColor}
+        onSubmit={actions.submitNewProject}
+      />
 
       <SyncSettingsModal
         isOpen={ui.isSyncModalOpen}

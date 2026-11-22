@@ -2,12 +2,16 @@ import React, { ChangeEvent } from 'react';
 import { FilePlus2, Upload } from 'lucide-react';
 import { ActiveNoteVM } from '../state/editor-ui.state';
 import { ConflictBanner } from './ConflictBanner';
+import { GoogleSignInButton } from './GoogleSignInButton';
 import { MarkdownPreviewPane } from './MarkdownPreviewPane';
 
 interface MarkdownCanvasProps {
   readonly activeNote: ActiveNoteVM | null;
   readonly isPreviewMode: boolean;
   readonly isFocusMode: boolean;
+  readonly isSignedIn: boolean;
+  readonly isSigningIn: boolean;
+  readonly onSignIn: () => void;
   readonly onChangeTitle: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onChangeContent: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   readonly onChangeTags: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -21,6 +25,9 @@ export const MarkdownCanvas: React.FC<MarkdownCanvasProps> = ({
   activeNote,
   isPreviewMode,
   isFocusMode,
+  isSignedIn,
+  isSigningIn,
+  onSignIn,
   onChangeTitle,
   onChangeContent,
   onChangeTags,
@@ -39,7 +46,7 @@ export const MarkdownCanvas: React.FC<MarkdownCanvasProps> = ({
           <p className="mt-3 text-sm leading-relaxed text-[#57534E]">
             Crea un nuevo manuscrito para comenzar desde una semilla o importa un archivo Markdown con frontmatter YAML.
           </p>
-          <div className="mt-6 flex items-center justify-center gap-3">
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={onCreateNote}
@@ -57,6 +64,11 @@ export const MarkdownCanvas: React.FC<MarkdownCanvasProps> = ({
               Importar .md
             </button>
           </div>
+          {!isSignedIn && (
+            <div className="mt-4 flex justify-center">
+              <GoogleSignInButton isSigningIn={isSigningIn} onClick={onSignIn} />
+            </div>
+          )}
         </div>
       </section>
     );

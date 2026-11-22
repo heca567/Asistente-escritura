@@ -1,5 +1,11 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
-import { Note, SyncStatus } from '../../domain/models/note.model';
+import {
+  buildSlug,
+  extractExcerpt,
+  normalizeTags,
+  Note,
+  SyncStatus,
+} from '../../domain/models/note.model';
 import {
   STAGE_DESCRIPTORS,
   WRITING_STAGES_ORDER,
@@ -8,6 +14,10 @@ import {
 import { ManageNotesUseCase } from '../../domain/use-cases/manage-notes.usecase';
 import { SyncWorkspaceUseCase } from '../../domain/use-cases/sync-workspace.usecase';
 import { TransitionStageUseCase } from '../../domain/use-cases/transition-stage.usecase';
+import { folderRepository } from '../../infrastructure/firebase/folder.repository';
+import { notesRepository, timestampToIsoString } from '../../infrastructure/firebase/notes.repository';
+import { userProfileRepository } from '../../infrastructure/firebase/user-profile.repository';
+import type { FirestoreNote } from '../../types';
 import { editorUIReducer } from '../state/editor-ui.reducer';
 import {
   ActiveNoteVM,
@@ -15,6 +25,8 @@ import {
   EditorUIState,
   MarkdownBlockVM,
   NoteCardVM,
+  ProjectFilterKey,
+  ProjectOptionVM,
   StageFilterKey,
   StageFilterOptionVM,
   StageTransitionOptionVM,
@@ -35,6 +47,7 @@ export interface StudioUseCases {
 
 export interface NoteStudioViewModel {
   readonly ui: EditorUIState;
+  readonly projectOptions: readonly ProjectOptionVM[];
   readonly noteCards: readonly NoteCardVM[];
   readonly activeNote: ActiveNoteVM | null;
   readonly stageFilters: readonly StageFilterOptionVM[];
@@ -44,6 +57,14 @@ export interface NoteStudioViewModel {
 }
 
 export interface NoteStudioActions {
+  readonly signInWithGoogle: () => Promise<void>;
+  readonly signOutUser: () => Promise<void>;
+  readonly selectProject: (projectId: ProjectFilterKey) => void;
+  readonly openNewProjectModal: () => void;
+  readonly closeNewProjectModal: () => void;
+  readonly changeNewProjectName: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly changeNewProjectColor: (color: string) => void;
+  readonly submitNewProject: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   readonly selectNote: (noteId: string) => void;
   readonly createNote: () => Promise<void>;
   readonly saveActiveNote: () => Promise<void>;
@@ -84,6 +105,30 @@ const SYNC_STATUS_LABELS: Readonly<Record<SyncStatus, string>> = {
   [SyncStatus.SYNCED]: 'Sincronizado',
   [SyncStatus.CONFLICT]: 'Conflicto',
 };
+
+function generateFirestoreId(prefix: string): string {
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `${prefix}_${timestamp}_${randomPart}`;
+}
+
+function mapFirestoreNoteToDomain(raw: FirestoreNote): Note {
+  const title = raw.title || 'Manuscrito sin título';
+  const content = raw.content || '';
+  return {
+    id: raw.id,
+    folderId: raw.folderId ?? null,
+    slug: raw.slug || buildSlug(title, raw.id),
+    title,
+    content,
+    excerpt: raw.excerpt ?? extractExcerpt(content),
+    stage: raw.stage || WritingStage.SEED,
+    tags: Array.isArray(raw.tags) ? raw.tags : [],
+    syncStatus: SyncStatus.SYNCED,
+    createdAt: timestampToIsoString(raw.createdAt),
+    updatedAt: timestampToIsoString(raw.updatedAt),
+  };
+}
 
 function parseTagsInput(rawInput: string): readonly string[] {
   return rawInput
@@ -192,6 +237,38 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
     async (noteId: string, title: string, content: string, tagsInput: string): Promise<Note | null> => {
       dispatch({ type: 'SAVE_NOTE_START' });
       try {
+        if (state.user) {
+          const existingNote = state.notes.find((item) => item.id === noteId);
+          const cleanTitle = title.trim() || 'Manuscrito sin título';
+          const normalizedTags = normalizeTags(parseTagsInput(tagsInput));
+          const slug = buildSlug(cleanTitle, noteId);
+          const excerpt = extractExcerpt(content);
+
+          await notesRepository.update(noteId, {
+            title: cleanTitle,
+            slug,
+            content,
+            excerpt,
+            tags: [...normalizedTags],
+          });
+
+          const saved: Note = {
+            id: noteId,
+            folderId: existingNote?.folderId ?? null,
+            slug,
+            title: cleanTitle,
+            content,
+            excerpt,
+            stage: existingNote?.stage ?? WritingStage.SEED,
+            tags: normalizedTags,
+            syncStatus: SyncStatus.SYNCED,
+            createdAt: existingNote?.createdAt ?? new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          dispatch({ type: 'SAVE_NOTE_SUCCESS', payload: { note: saved } });
+          return saved;
+        }
+
         const saved = await manageNotes.updateNote(noteId, {
           title,
           content,
@@ -205,13 +282,75 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
         return null;
       }
     },
-    [manageNotes]
+    [manageNotes, state.user, state.notes]
   );
 
   useEffect(() => {
+    const unsubscribe = userProfileRepository.subscribe(
+      (profile) => {
+        dispatch({ type: 'SET_AUTH_STATE', payload: { user: profile } });
+      },
+      (error) => {
+        dispatch({
+          type: 'SIGN_IN_ERROR',
+          payload: { message: error.message || 'Error al verificar la sesión.' },
+        });
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!state.isAuthReady) {
+      return;
+    }
+
+    if (state.user) {
+      dispatch({ type: 'LOAD_NOTES_START' });
+
+      const unsubFolders = folderRepository.subscribe(
+        state.user.uid,
+        (folders) => {
+          dispatch({ type: 'SET_PROJECTS', payload: { projects: folders } });
+        },
+        (error) => {
+          dispatch({
+            type: 'CREATE_PROJECT_ERROR',
+            payload: { message: `Error al cargar proyectos: ${error.message}` },
+          });
+        }
+      );
+
+      const unsubNotes = notesRepository.subscribe(
+        state.user.uid,
+        (firestoreNotes) => {
+          const domainNotes = firestoreNotes.map(mapFirestoreNoteToDomain);
+          dispatch({ type: 'LOAD_NOTES_SUCCESS', payload: { notes: domainNotes } });
+          dispatch({
+            type: 'SET_SYNC_STATUS_FLAG',
+            payload: { isConfigured: syncWorkspace.isSyncConfigured() },
+          });
+        },
+        (error) => {
+          dispatch({
+            type: 'LOAD_NOTES_ERROR',
+            payload: { message: `Error al sincronizar con Firestore: ${error.message}` },
+          });
+        }
+      );
+
+      return () => {
+        unsubFolders();
+        unsubNotes();
+      };
+    }
+
     let isMounted = true;
 
-    const bootstrapWorkspace = async () => {
+    const bootstrapLocalWorkspace = async () => {
       dispatch({ type: 'LOAD_NOTES_START' });
       try {
         const notes = await manageNotes.listNotes();
@@ -232,12 +371,12 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
       }
     };
 
-    void bootstrapWorkspace();
+    void bootstrapLocalWorkspace();
 
     return () => {
       isMounted = false;
     };
-  }, [manageNotes, syncWorkspace]);
+  }, [state.isAuthReady, state.user, manageNotes, syncWorkspace]);
 
   useEffect(() => {
     const updateOnline = () => {
@@ -342,6 +481,121 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
     persistCurrentDraft,
   ]);
 
+  const signInWithGoogle = useCallback(async () => {
+    dispatch({ type: 'SIGN_IN_START' });
+    try {
+      const profile = await userProfileRepository.signInWithGoogle();
+      dispatch({
+        type: 'SET_FEEDBACK',
+        payload: {
+          notice: {
+            id: `signin-${Date.now()}`,
+            tone: 'success',
+            message: `Sesión iniciada como ${profile.displayName}.`,
+          },
+        },
+      });
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code;
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        dispatch({ type: 'SET_AUTH_STATE', payload: { user: state.user } });
+        return;
+      }
+      const message =
+        error instanceof Error ? error.message : 'No se pudo iniciar sesión con Google.';
+      dispatch({ type: 'SIGN_IN_ERROR', payload: { message } });
+    }
+  }, [state.user]);
+
+  const signOutUser = useCallback(async () => {
+    if (state.activeNoteId && state.isDirty) {
+      await persistCurrentDraft(
+        state.activeNoteId,
+        state.draftTitle,
+        state.draftContent,
+        state.draftTagsInput
+      );
+    }
+    await userProfileRepository.logout();
+    dispatch({ type: 'SIGN_OUT_SUCCESS' });
+  }, [
+    state.activeNoteId,
+    state.isDirty,
+    state.draftTitle,
+    state.draftContent,
+    state.draftTagsInput,
+    persistCurrentDraft,
+  ]);
+
+  const selectProject = useCallback((projectId: ProjectFilterKey) => {
+    dispatch({ type: 'SELECT_PROJECT', payload: { projectId } });
+  }, []);
+
+  const openNewProjectModal = useCallback(() => {
+    if (!state.user) {
+      dispatch({
+        type: 'SET_FEEDBACK',
+        payload: {
+          notice: {
+            id: `proj-auth-req-${Date.now()}`,
+            tone: 'info',
+            message: 'Inicia sesión con Google para crear y sincronizar proyectos en Firestore.',
+          },
+        },
+      });
+      return;
+    }
+    dispatch({ type: 'OPEN_PROJECT_MODAL' });
+  }, [state.user]);
+
+  const closeNewProjectModal = useCallback(() => {
+    dispatch({ type: 'CLOSE_PROJECT_MODAL' });
+  }, []);
+
+  const changeNewProjectName = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    dispatch({ type: 'UPDATE_NEW_PROJECT_NAME', payload: { name: event.target.value } });
+  }, []);
+
+  const changeNewProjectColor = useCallback((color: string) => {
+    dispatch({ type: 'UPDATE_NEW_PROJECT_COLOR', payload: { color } });
+  }, []);
+
+  const submitNewProject = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!state.user) {
+        dispatch({
+          type: 'CREATE_PROJECT_ERROR',
+          payload: { message: 'Debes iniciar sesión antes de crear un proyecto.' },
+        });
+        return;
+      }
+      const cleanName = state.newProjectName.trim();
+      if (!cleanName) {
+        return;
+      }
+      dispatch({ type: 'CREATE_PROJECT_START' });
+      try {
+        const projectId = generateFirestoreId('proj');
+        const created = await folderRepository.create(
+          {
+            name: cleanName,
+            color: state.newProjectColor,
+            icon: 'folder',
+          },
+          state.user,
+          projectId
+        );
+        dispatch({ type: 'CREATE_PROJECT_SUCCESS', payload: { project: created } });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'No se pudo crear el proyecto en Firestore.';
+        dispatch({ type: 'CREATE_PROJECT_ERROR', payload: { message } });
+      }
+    },
+    [state.user, state.newProjectName, state.newProjectColor]
+  );
+
   const selectNote = useCallback(
     (noteId: string) => {
       if (state.activeNoteId === noteId) {
@@ -385,8 +639,45 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
 
     const initialStage =
       state.stageFilter !== 'ALL' ? state.stageFilter : WritingStage.SEED;
+    const assignedFolderId =
+      state.selectedProjectId !== 'ALL' ? state.selectedProjectId : null;
+
+    if (state.user) {
+      try {
+        const id = generateFirestoreId('note');
+        const title = 'Nuevo manuscrito';
+        const slug = buildSlug(title, id);
+        const createdRemote = await notesRepository.create(
+          {
+            folderId: assignedFolderId,
+            title,
+            slug,
+            content: '',
+            excerpt: '',
+            stage: initialStage,
+            tags: [],
+            isPinned: false,
+            isArchived: false,
+            color: '',
+          },
+          state.user,
+          id
+        );
+        const domainNote = mapFirestoreNoteToDomain(createdRemote);
+        dispatch({ type: 'CREATE_NOTE_SUCCESS', payload: { note: domainNote } });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'No se pudo crear el manuscrito en Firestore.';
+        dispatch({
+          type: 'SET_FEEDBACK',
+          payload: { notice: { id: `create-err-${Date.now()}`, tone: 'error', message } },
+        });
+      }
+      return;
+    }
 
     const created = await manageNotes.createNote({
+      folderId: assignedFolderId,
       title: 'Nuevo manuscrito',
       content: '',
       stage: initialStage,
@@ -401,6 +692,8 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
     state.draftContent,
     state.draftTagsInput,
     state.stageFilter,
+    state.selectedProjectId,
+    state.user,
     manageNotes,
     persistCurrentDraft,
   ]);
@@ -422,7 +715,9 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
           notice: {
             id: `saved-${Date.now()}`,
             tone: 'success',
-            message: 'Manuscrito guardado localmente.',
+            message: state.user
+              ? 'Manuscrito guardado en Firestore.'
+              : 'Manuscrito guardado localmente.',
           },
         },
       });
@@ -432,6 +727,7 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
     state.draftTitle,
     state.draftContent,
     state.draftTagsInput,
+    state.user,
     persistCurrentDraft,
   ]);
 
@@ -445,10 +741,14 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
 
   const confirmDeleteNote = useCallback(
     async (noteId: string) => {
-      await manageNotes.deleteNote(noteId);
+      if (state.user) {
+        await notesRepository.delete(noteId);
+      } else {
+        await manageNotes.deleteNote(noteId);
+      }
       dispatch({ type: 'DELETE_NOTE_SUCCESS', payload: { noteId } });
     },
-    [manageNotes]
+    [manageNotes, state.user]
   );
 
   const transitionNoteStage = useCallback(
@@ -467,8 +767,27 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
       }
 
       try {
-        const updated = await transitionStage.execute(state.activeNoteId, targetStage);
-        dispatch({ type: 'TRANSITION_STAGE_SUCCESS', payload: { note: updated } });
+        if (state.user) {
+          const current = state.notes.find((item) => item.id === state.activeNoteId);
+          if (!current) {
+            return;
+          }
+          const allowed = transitionStage.getAvailableTransitions(current.stage);
+          if (!allowed.includes(targetStage)) {
+            throw new Error('Transición de etapa no permitida.');
+          }
+          await notesRepository.update(state.activeNoteId, { stage: targetStage });
+          const updated: Note = {
+            ...current,
+            stage: targetStage,
+            updatedAt: new Date().toISOString(),
+          };
+          dispatch({ type: 'TRANSITION_STAGE_SUCCESS', payload: { note: updated } });
+        } else {
+          const updated = await transitionStage.execute(state.activeNoteId, targetStage);
+          dispatch({ type: 'TRANSITION_STAGE_SUCCESS', payload: { note: updated } });
+        }
+
         dispatch({
           type: 'SET_FEEDBACK',
           payload: {
@@ -494,6 +813,8 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
       state.draftTitle,
       state.draftContent,
       state.draftTagsInput,
+      state.user,
+      state.notes,
       transitionStage,
       persistCurrentDraft,
     ]
@@ -536,18 +857,23 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
       return;
     }
 
+    let currentNote = state.notes.find((item) => item.id === state.activeNoteId);
     if (state.isDirty) {
-      await persistCurrentDraft(
+      const saved = await persistCurrentDraft(
         state.activeNoteId,
         state.draftTitle,
         state.draftContent,
         state.draftTagsInput
       );
+      if (saved) {
+        currentNote = saved;
+      }
     }
 
-    const markdown = await manageNotes.exportNoteAsMarkdown(state.activeNoteId);
-    const active = state.notes.find((item) => item.id === state.activeNoteId);
-    const fileName = `${active?.slug || state.activeNoteId}.md`;
+    const markdown = currentNote
+      ? manageNotes.serializeNote(currentNote)
+      : await manageNotes.exportNoteAsMarkdown(state.activeNoteId);
+    const fileName = `${currentNote?.slug || state.activeNoteId}.md`;
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -592,14 +918,39 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
       try {
         const rawText = await file.text();
         const imported = await manageNotes.importNoteFromMarkdown(rawText);
-        dispatch({ type: 'CREATE_NOTE_SUCCESS', payload: { note: imported } });
+        let finalNote = imported;
+
+        if (state.user) {
+          const assignedFolderId =
+            state.selectedProjectId !== 'ALL' ? state.selectedProjectId : null;
+          const safeId = imported.id.replace(/[^a-zA-Z0-9_\-]/g, '-').slice(0, 128);
+          const createdRemote = await notesRepository.create(
+            {
+              folderId: assignedFolderId,
+              title: imported.title,
+              slug: imported.slug,
+              content: imported.content,
+              excerpt: imported.excerpt,
+              stage: imported.stage,
+              tags: imported.tags,
+              isPinned: false,
+              isArchived: false,
+              color: '',
+            },
+            state.user,
+            safeId
+          );
+          finalNote = mapFirestoreNoteToDomain(createdRemote);
+        }
+
+        dispatch({ type: 'CREATE_NOTE_SUCCESS', payload: { note: finalNote } });
         dispatch({
           type: 'SET_FEEDBACK',
           payload: {
             notice: {
               id: `import-${Date.now()}`,
               tone: 'success',
-              message: `Importado "${imported.title}" correctamente.`,
+              message: `Importado "${finalNote.title}" correctamente.`,
             },
           },
         });
@@ -612,7 +963,7 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
         });
       }
     },
-    [manageNotes]
+    [manageNotes, state.user, state.selectedProjectId]
   );
 
   const openSyncModal = useCallback(() => {
@@ -817,10 +1168,44 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
     dispatch({ type: 'DISMISS_FEEDBACK' });
   }, []);
 
+  const projectScopedNotes = useMemo<readonly Note[]>(() => {
+    if (state.selectedProjectId === 'ALL') {
+      return state.notes;
+    }
+    return state.notes.filter((note) => note.folderId === state.selectedProjectId);
+  }, [state.notes, state.selectedProjectId]);
+
+  const projectOptions = useMemo<readonly ProjectOptionVM[]>(() => {
+    const countByProject = new Map<string, number>();
+    for (const note of state.notes) {
+      if (note.folderId) {
+        countByProject.set(note.folderId, (countByProject.get(note.folderId) ?? 0) + 1);
+      }
+    }
+
+    const allProjectsOption: ProjectOptionVM = {
+      id: 'ALL',
+      name: 'Todos los proyectos',
+      color: '#1E3A5F',
+      noteCount: state.notes.length,
+      isActive: state.selectedProjectId === 'ALL',
+    };
+
+    const items: ProjectOptionVM[] = state.projects.map((folder) => ({
+      id: folder.id,
+      name: folder.name,
+      color: folder.color || '#1E3A5F',
+      noteCount: countByProject.get(folder.id) ?? 0,
+      isActive: state.selectedProjectId === folder.id,
+    }));
+
+    return [allProjectsOption, ...items];
+  }, [state.projects, state.notes, state.selectedProjectId]);
+
   const noteCards = useMemo<readonly NoteCardVM[]>(() => {
     const query = state.searchQuery.trim().toLowerCase();
 
-    return state.notes
+    return projectScopedNotes
       .filter((note) => {
         if (state.stageFilter !== 'ALL' && note.stage !== state.stageFilter) {
           return false;
@@ -855,7 +1240,7 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
         };
       });
   }, [
-    state.notes,
+    projectScopedNotes,
     state.stageFilter,
     state.searchQuery,
     state.activeNoteId,
@@ -910,14 +1295,14 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
 
   const stageFilters = useMemo<readonly StageFilterOptionVM[]>(() => {
     const countByStage = new Map<WritingStage, number>();
-    for (const note of state.notes) {
+    for (const note of projectScopedNotes) {
       countByStage.set(note.stage, (countByStage.get(note.stage) ?? 0) + 1);
     }
 
     const allOption: StageFilterOptionVM = {
       key: 'ALL',
       label: 'Todas',
-      count: state.notes.length,
+      count: projectScopedNotes.length,
       isActive: state.stageFilter === 'ALL',
     };
 
@@ -929,7 +1314,7 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
     }));
 
     return [allOption, ...stageOptions];
-  }, [state.notes, state.stageFilter]);
+  }, [projectScopedNotes, state.stageFilter]);
 
   const allowedTransitions = useMemo<readonly StageTransitionOptionVM[]>(() => {
     if (!activeNote) {
@@ -947,7 +1332,7 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
     let pendingSyncCount = 0;
     let conflictCount = 0;
 
-    for (const note of state.notes) {
+    for (const note of projectScopedNotes) {
       const text = note.id === state.activeNoteId ? state.draftContent : note.content;
       totalWords += manageNotes.computeMetrics(text).wordCount;
       if (note.syncStatus === SyncStatus.LOCAL_ONLY || note.syncStatus === SyncStatus.PENDING_SYNC) {
@@ -959,16 +1344,17 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
     }
 
     return {
-      totalNotes: state.notes.length,
+      totalNotes: projectScopedNotes.length,
       totalWordsLabel: `${totalWords.toLocaleString('es-ES')} palabras`,
       pendingSyncCount,
       conflictCount,
     };
-  }, [state.notes, state.activeNoteId, state.draftContent, manageNotes]);
+  }, [projectScopedNotes, state.activeNoteId, state.draftContent, manageNotes]);
 
   return {
     vm: {
       ui: state,
+      projectOptions,
       noteCards,
       activeNote,
       stageFilters,
@@ -977,6 +1363,14 @@ export function useNoteStudioHandler(useCases: StudioUseCases): {
       fileInputRef,
     },
     actions: {
+      signInWithGoogle,
+      signOutUser,
+      selectProject,
+      openNewProjectModal,
+      closeNewProjectModal,
+      changeNewProjectName,
+      changeNewProjectColor,
+      submitNewProject,
       selectNote,
       createNote,
       saveActiveNote,
