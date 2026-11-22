@@ -114,6 +114,87 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/folders/$(folderId)).data.userId == request.auth.uid);
     }
 
+    function ownsNote(noteId) {
+      return exists(/databases/$(database)/documents/notes/$(noteId))
+        && get(/databases/$(database)/documents/notes/$(noteId)).data.userId == request.auth.uid;
+    }
+
+    function ownsProject(projectId) {
+      return exists(/databases/$(database)/documents/folders/$(projectId))
+        && get(/databases/$(database)/documents/folders/$(projectId)).data.userId == request.auth.uid;
+    }
+
+    function isValidSavedAffirmation(data) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'projectId',
+          'texto',
+          'tipo',
+          'origen',
+          'estado',
+          'fuentes',
+          'evolucion',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'userId',
+          'projectId',
+          'texto',
+          'tipo',
+          'origen',
+          'estado',
+          'fuentes',
+          'evolucion',
+          'updatedAt'
+        ])
+        && data.id is string
+        && data.id.size() >= 1
+        && data.id.size() <= 128
+        && data.userId is string
+        && data.userId == request.auth.uid
+        && data.projectId is string
+        && isValidId(data.projectId)
+        && data.texto is string
+        && data.texto.size() >= 1
+        && data.texto.size() <= 10000
+        && data.tipo is string
+        && data.tipo.size() >= 1
+        && data.tipo.size() <= 128
+        && data.origen is string
+        && data.origen in ['usuario', 'asistente', 'compartido']
+        && data.estado == 'vigente'
+        && data.fuentes is list
+        && data.fuentes.size() <= 100
+        && data.evolucion is map
+        && data.evolucion.keys().hasAll(['tipo', 'antecedentes'])
+        && data.evolucion.keys().hasOnly(['tipo', 'antecedentes'])
+        && data.evolucion.tipo is string
+        && data.evolucion.tipo.size() >= 1
+        && data.evolucion.tipo.size() <= 128
+        && data.evolucion.antecedentes is list
+        && data.evolucion.antecedentes.size() <= 100
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidComment(data, commentId) {
+      return data.keys().hasAll(['id', 'userId', 'noteId', 'content', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'noteId', 'content', 'createdAt', 'updatedAt'])
+        && data.id is string
+        && data.id == commentId
+        && isValidId(data.id)
+        && data.userId is string
+        && data.userId == request.auth.uid
+        && data.noteId is string
+        && isValidId(data.noteId)
+        && data.content is string
+        && data.content.size() >= 1
+        && data.content.size() <= 5000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     match /folders/{folderId} {
       allow get: if isVerifiedUser()
         && isValidId(folderId)
@@ -184,6 +265,66 @@ service cloud.firestore {
       allow delete: if isVerifiedUser()
         && isValidId(noteId)
         && existing().userId == request.auth.uid;
+    }
+
+    match /comments/{commentId} {
+      allow get: if isVerifiedUser()
+        && isValidId(commentId)
+        && existing().userId == request.auth.uid;
+
+      allow list: if isVerifiedUser()
+        && existing().userId == request.auth.uid;
+
+      allow create: if isVerifiedUser()
+        && isValidId(commentId)
+        && isValidComment(incoming(), commentId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && ownsNote(incoming().noteId);
+
+      allow update: if isVerifiedUser()
+        && isValidId(commentId)
+        && isValidComment(incoming(), commentId)
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id
+        && incoming().noteId == existing().noteId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && ownsNote(incoming().noteId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'updatedAt']);
+
+      allow delete: if isVerifiedUser()
+        && isValidId(commentId)
+        && existing().userId == request.auth.uid;
+    }
+
+    match /affirmations/{affirmationId} {
+      allow get: if isVerifiedUser()
+        && existing().userId == request.auth.uid;
+
+      allow create: if isVerifiedUser()
+        && isValidSavedAffirmation(incoming())
+        && incoming().updatedAt == request.time
+        && ownsProject(incoming().projectId);
+
+      allow update: if isVerifiedUser()
+        && isValidSavedAffirmation(incoming())
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && ownsProject(incoming().projectId)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'projectId',
+          'texto',
+          'tipo',
+          'origen',
+          'estado',
+          'fuentes',
+          'evolucion',
+          'updatedAt'
+        ]);
     }
   }
 }

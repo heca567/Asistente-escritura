@@ -88,3 +88,16 @@ export function filtrarAfirmaciones(
     return true;
   });
 }
+
+export type AfirmacionGuardable = Afirmacion & { readonly proyecto: string };
+
+export function filtrarAfirmacionesGuardables(
+  afirmaciones: readonly Afirmacion[]
+): readonly AfirmacionGuardable[] {
+  return afirmaciones.filter(
+    (afirmacion): afirmacion is AfirmacionGuardable =>
+      afirmacion.estado === 'vigente' &&
+      typeof afirmacion.proyecto === 'string' &&
+      afirmacion.proyecto.trim().length > 0
+  );
+}

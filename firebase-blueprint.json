@@ -1,5 +1,131 @@
 {
   "entities": {
+    "Affirmation": {
+      "title": "Affirmation",
+      "description": "Afirmación vigente asociada a un proyecto/carpeta y propiedad de un usuario.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "UID del propietario autenticado."
+        },
+        "projectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID de una carpeta/proyecto propiedad del usuario."
+        },
+        "texto": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10000
+        },
+        "tipo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "origen": {
+          "type": "string",
+          "enum": ["usuario", "asistente", "compartido"]
+        },
+        "estado": {
+          "type": "string",
+          "const": "vigente"
+        },
+        "fuentes": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string"
+          }
+        },
+        "evolucion": {
+          "type": "object",
+          "properties": {
+            "tipo": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "antecedentes": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["tipo", "antecedentes"]
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal asignada por el servidor."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "projectId",
+        "texto",
+        "tipo",
+        "origen",
+        "estado",
+        "fuentes",
+        "evolucion",
+        "updatedAt"
+      ]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Comentario privado de un usuario asociado a uno de sus manuscritos.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "UID del propietario autenticado."
+        },
+        "noteId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Identificador del manuscrito asociado."
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal de creación asignada por el servidor."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal de actualización asignada por el servidor."
+        }
+      },
+      "required": ["id", "userId", "noteId", "content", "createdAt", "updatedAt"]
+    },
     "Folder": {
       "title": "Folder",
       "description": "Proyecto o carpeta editorial en Firestore que agrupa manuscritos de un usuario.",
@@ -159,6 +285,18 @@
         "$ref": "#/entities/Note"
       },
       "description": "Manuscritos privados en Markdown pertenecientes a cada usuario y vinculados opcionalmente a un proyecto."
+    },
+    "/comments/{commentId}": {
+      "schema": {
+        "$ref": "#/entities/Comment"
+      },
+      "description": "Comentarios privados asociados a un manuscrito propiedad del usuario."
+    },
+    "/affirmations/{affirmationId}": {
+      "schema": {
+        "$ref": "#/entities/Affirmation"
+      },
+      "description": "Afirmaciones vigentes asociadas a proyectos propiedad de cada usuario."
     }
   }
 }

@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   crearFiltrosIniciales,
   extraerOpcionesFiltro,
+  filtrarAfirmacionesGuardables,
   filtrarAfirmaciones,
 } from '../queries';
 import type { Afirmacion } from '../types';
@@ -97,4 +98,19 @@ test('extraerOpcionesFiltro obtiene listas únicas ordenadas de los valores pres
   assert.ok(opciones.tipos.includes('observacion'));
   assert.ok(opciones.estados.includes('en_revision'));
   assert.ok(opciones.tiposEvolucion.includes('sintesis'));
+});
+
+test('solo guarda afirmaciones vigentes que tienen un proyecto asignado', () => {
+  const [vigente, sinProyecto, descartada] = cargarFixture();
+  assert.ok(vigente);
+  assert.ok(sinProyecto);
+  assert.ok(descartada);
+
+  const guardables = filtrarAfirmacionesGuardables([
+    { ...vigente, estado: 'vigente', proyecto: 'folder_1' },
+    { ...sinProyecto, estado: 'vigente', proyecto: null },
+    { ...descartada, estado: 'descartada', proyecto: 'folder_1' },
+  ]);
+
+  assert.deepEqual(guardables.map((item) => item.id), [vigente.id]);
 });

@@ -1,16 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { ArrowLeft, BookOpen } from 'lucide-react';
-import { AfirmacionDetalle } from './AfirmacionDetalle';
-import { Afirmaciones } from './Afirmaciones';
+import { ExplorerPage } from './ExplorerPage';
 import { PegarJson } from './PegarJson';
-import {
-  crearFiltrosIniciales,
-  extraerOpcionesFiltro,
-  filtrarAfirmaciones,
-} from './queries';
-import { resolverRelaciones } from './relations';
 import './style.css';
-import type { Afirmacion, FiltrosAfirmaciones } from './types';
+import type { Afirmacion } from './types';
 import { parsearYValidarAfirmaciones } from './validations';
 
 interface ExploradorAfirmacionesPageProps {
@@ -21,8 +14,7 @@ export const Page: React.FC<ExploradorAfirmacionesPageProps> = ({ onNavigateHome
   const [rawJson, setRawJson] = useState<string>('');
   const [afirmaciones, setAfirmaciones] = useState<readonly Afirmacion[]>([]);
   const [errores, setErrores] = useState<readonly string[]>([]);
-  const [filtros, setFiltros] = useState<FiltrosAfirmaciones>(crearFiltrosIniciales);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [exploradorAbierto, setExploradorAbierto] = useState(false);
 
   const handleProcesarJson = () => {
     const resultado = parsearYValidarAfirmaciones(rawJson);
@@ -34,40 +26,19 @@ export const Page: React.FC<ExploradorAfirmacionesPageProps> = ({ onNavigateHome
 
     setErrores([]);
     setAfirmaciones(resultado.afirmaciones);
-    setSelectedId((prevSelected) => {
-      if (prevSelected && resultado.afirmaciones.some((item) => item.id === prevSelected)) {
-        return prevSelected;
-      }
-      return resultado.afirmaciones[0]?.id ?? null;
-    });
+    setExploradorAbierto(true);
   };
 
-  const handleClearFiltros = () => {
-    setFiltros(crearFiltrosIniciales());
-  };
-
-  const opcionesFiltro = useMemo(
-    () => extraerOpcionesFiltro(afirmaciones),
-    [afirmaciones]
-  );
-
-  const afirmacionesFiltradas = useMemo(
-    () => filtrarAfirmaciones(afirmaciones, filtros),
-    [afirmaciones, filtros]
-  );
-
-  const afirmacionSeleccionada = useMemo(
-    () => afirmaciones.find((item) => item.id === selectedId) ?? null,
-    [afirmaciones, selectedId]
-  );
-
-  const relacionesSeleccionada = useMemo(
-    () =>
-      afirmacionSeleccionada
-        ? resolverRelaciones(afirmacionSeleccionada.id, afirmaciones)
-        : { antecedentes: [], antecedentesFaltantes: [], sucesoras: [] },
-    [afirmacionSeleccionada, afirmaciones]
-  );
+  if (exploradorAbierto) {
+    return (
+      <ExplorerPage
+        afirmaciones={afirmaciones}
+        onChangeAfirmaciones={setAfirmaciones}
+        onBackToJson={() => setExploradorAbierto(false)}
+        onNavigateHome={onNavigateHome}
+      />
+    );
+  }
 
   return (
     <div className="afirmaciones-shell flex min-h-screen w-full flex-col">
@@ -104,29 +75,6 @@ export const Page: React.FC<ExploradorAfirmacionesPageProps> = ({ onNavigateHome
           onChangeJson={setRawJson}
           onProcesar={handleProcesarJson}
         />
-
-        <div className="grid min-h-[480px] flex-1 gap-4 lg:grid-cols-12">
-          <div className="lg:col-span-5 xl:col-span-4 min-h-[380px] lg:max-h-[680px]">
-            <Afirmaciones
-              afirmaciones={afirmacionesFiltradas}
-              totalCount={afirmaciones.length}
-              filtros={filtros}
-              opcionesFiltro={opcionesFiltro}
-              selectedId={selectedId}
-              onChangeFiltros={setFiltros}
-              onClearFiltros={handleClearFiltros}
-              onSelectAfirmacion={setSelectedId}
-            />
-          </div>
-
-          <div className="lg:col-span-7 xl:col-span-8 min-h-[380px] lg:max-h-[680px]">
-            <AfirmacionDetalle
-              afirmacion={afirmacionSeleccionada}
-              relaciones={relacionesSeleccionada}
-              onSelectAfirmacion={setSelectedId}
-            />
-          </div>
-        </div>
       </main>
     </div>
   );

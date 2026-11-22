@@ -34,6 +34,29 @@ test('rechaza texto vacío y JSON sintácticamente inválido', () => {
   }
 });
 
+test('preserva el proyecto opcional y rechaza valores de proyecto inválidos', () => {
+  const afirmacion = {
+    id: 'A001',
+    texto: 'Texto',
+    tipo: 'requisito',
+    origen: 'usuario',
+    estado: 'vigente',
+    fuentes: [],
+    evolucion: { tipo: 'origen', antecedentes: [] },
+    proyecto: 'folder_1',
+  };
+  const valida = parsearYValidarAfirmaciones(JSON.stringify({ afirmaciones: [afirmacion] }));
+  assert.equal(valida.ok, true);
+  if (valida.ok) {
+    assert.equal(valida.afirmaciones[0]?.proyecto, 'folder_1');
+  }
+
+  const invalida = parsearYValidarAfirmaciones(
+    JSON.stringify({ afirmaciones: [{ ...afirmacion, proyecto: 42 }] })
+  );
+  assert.equal(invalida.ok, false);
+});
+
 test('rechaza documentos sin arreglo afirmaciones, orígenes inválidos o ids duplicados', () => {
   const sinArreglo = parsearYValidarAfirmaciones('{"items": []}');
   assert.equal(sinArreglo.ok, false);

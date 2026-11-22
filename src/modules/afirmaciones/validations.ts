@@ -9,7 +9,7 @@ function esStringNoVacio(valor: unknown): valor is string {
 }
 
 function esOrigenValido(valor: unknown): valor is OrigenAfirmacion {
-  return valor === 'usuario' || valor === 'asistente';
+  return valor === 'usuario' || valor === 'asistente' || valor === 'compartido';
 }
 
 function validarArregloStrings(
@@ -68,6 +68,14 @@ function validarAfirmacion(
     errores.push(`${prefijo}.origen debe ser "usuario" o "asistente".`);
   }
 
+  if (
+    elemento.proyecto !== undefined &&
+    elemento.proyecto !== null &&
+    !esStringNoVacio(elemento.proyecto)
+  ) {
+    errores.push(`${prefijo}.proyecto debe ser un identificador de proyecto o null.`);
+  }
+
   if (!esStringNoVacio(elemento.estado)) {
     errores.push(`${prefijo}.estado debe ser un string no vacío.`);
   }
@@ -101,6 +109,9 @@ function validarAfirmacion(
     texto: elemento.texto as string,
     tipo: elemento.tipo as string,
     origen: elemento.origen as OrigenAfirmacion,
+    ...(elemento.proyecto === null || typeof elemento.proyecto === 'string'
+      ? { proyecto: elemento.proyecto }
+      : {}),
     estado: elemento.estado as string,
     fuentes: [...(elemento.fuentes as readonly string[])],
     evolucion: {
