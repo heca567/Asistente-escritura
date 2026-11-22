@@ -9,12 +9,7 @@ function esStringNoVacio(valor: unknown): valor is string {
 }
 
 function esOrigenValido(valor: unknown): valor is OrigenAfirmacion {
-  return (
-    valor === 'usuario' ||
-    valor === 'asistente' ||
-    valor === 'tercero' ||
-    valor === 'compartido'
-  );
+  return valor === 'usuario' || valor === 'asistente';
 }
 
 function validarArregloStrings(
@@ -70,17 +65,7 @@ function validarAfirmacion(
   }
 
   if (!esOrigenValido(elemento.origen)) {
-    errores.push(
-      `${prefijo}.origen debe ser "usuario", "asistente", "tercero" o "compartido".`
-    );
-  }
-
-  if (
-    elemento.proyecto !== undefined &&
-    elemento.proyecto !== null &&
-    !esStringNoVacio(elemento.proyecto)
-  ) {
-    errores.push(`${prefijo}.proyecto debe ser un ID de carpeta no vacío o null.`);
+    errores.push(`${prefijo}.origen debe ser "usuario" o "asistente".`);
   }
 
   if (!esStringNoVacio(elemento.estado)) {
@@ -111,7 +96,7 @@ function validarAfirmacion(
     readonly antecedentes: readonly string[];
   };
 
-  const afirmacion: Afirmacion = {
+  return {
     id: elemento.id as string,
     texto: elemento.texto as string,
     tipo: elemento.tipo as string,
@@ -123,12 +108,6 @@ function validarAfirmacion(
       antecedentes: [...evolucion.antecedentes],
     },
   };
-
-  if (typeof elemento.proyecto === 'string' || elemento.proyecto === null) {
-    return { ...afirmacion, proyecto: elemento.proyecto };
-  }
-
-  return afirmacion;
 }
 
 export function parsearYValidarAfirmaciones(rawJson: string): ResultadoValidacion {
